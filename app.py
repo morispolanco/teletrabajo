@@ -20,9 +20,18 @@ st.title("Buscador de Empleo 📄➡️💻")
 
 # Instrucciones para el usuario
 st.write("""
-    Carga tu currículum y encontraremos las mejores oportunidades de empleo para ti.
-    Revisa la lista de empleadores y posiciones adecuadas basadas en tu experiencia y habilidades.
+    **Bienvenido al Buscador de Empleo.**  
+    Aquí puedes encontrar las mejores oportunidades laborales que coinciden con tu perfil.  
+    **Métodos disponibles:**
+    - **Cargar tu currículum** en formato PDF o DOCX.
+    - **Ingresar manualmente tus habilidades** si prefieres no subir un currículum.
 """)
+
+# Opciones de entrada
+opcion = st.radio(
+    "Selecciona cómo deseas proporcionar tu información:",
+    ("Cargar Currículum", "Ingresar Habilidades Manualmente")
+)
 
 # Función para extraer texto del currículum
 def extraer_texto_curriculum(file):
@@ -135,30 +144,77 @@ def parsear_resultados_serper(empleos_json):
         st.error(f"Error al parsear los resultados de Serper: {e}")
     return resultados
 
-# Componente para cargar el currículum
-uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf", "docx"])
+# Función para procesar habilidades ingresadas manualmente
+def procesar_habilidades_manual(habilidades_texto):
+    # Limpiar y procesar las habilidades ingresadas
+    habilidades = habilidades_texto.strip()
+    # Puedes agregar más procesamiento si es necesario
+    return habilidades
 
-# Botón para buscar
-if uploaded_file:
-    if st.button("Buscar Oportunidades de Empleo"):
-        with st.spinner("Procesando tu currículum y buscando empleos..."):
-            # Extraer texto del currículum
-            texto_curriculum = extraer_texto_curriculum(uploaded_file)
-            if texto_curriculum:
-                # Procesar el currículum con Together para extraer habilidades y experiencias
-                together_api_key = st.secrets["together_api_key"]
-                descripcion = procesar_con_together(texto_curriculum, together_api_key)
-                
-                if descripcion:
-                    st.success("Currículum procesado exitosamente.")
+# Flujo principal basado en la opción seleccionada
+if opcion == "Cargar Currículum":
+    # Componente para cargar el currículum
+    uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf", "docx"])
+    
+    if uploaded_file:
+        if st.button("Buscar Oportunidades de Empleo"):
+            with st.spinner("Procesando tu currículum y buscando empleos..."):
+                # Extraer texto del currículum
+                texto_curriculum = extraer_texto_curriculum(uploaded_file)
+                if texto_curriculum:
+                    # Procesar el currículum con Together para extraer habilidades y experiencias
+                    together_api_key = st.secrets["together_api_key"]
+                    descripcion = procesar_con_together(texto_curriculum, together_api_key)
                     
-                    # Mostrar la descripción extraída (opcional)
-                    st.subheader("Información Extraída del Currículum")
-                    st.write(descripcion)
+                    if descripcion:
+                        st.success("Currículum procesado exitosamente.")
+                        
+                        # Mostrar la descripción extraída (opcional)
+                        st.subheader("Información Extraída del Currículum")
+                        st.write(descripcion)
+                        
+                        # Buscar empleos adecuados con Serper
+                        serper_api_key = st.secrets["serper_api_key"]
+                        empleos = buscar_empleos(descripcion, serper_api_key)
+                        
+                        if empleos:
+                            resultados = parsear_resultados_serper(empleos)
+                            if resultados:
+                                st.subheader("Opciones de Empleo Encontradas")
+                                for idx, empleo in enumerate(resultados, 1):
+                                    st.markdown(f"### {idx}. {empleo['titulo']}")
+                                    st.markdown(f"**Descripción:** {empleo['descripcion']}")
+                                    st.markdown(f"**Enlace:** [Aplicar Aquí]({empleo['enlace']})")
+                                    st.markdown("---")
+                            else:
+                                st.warning("No se encontraron empleos adecuados.")
+                        else:
+                            st.warning("No se obtuvieron resultados de empleos.")
+                    else:
+                        st.error("No se pudo procesar el currículum con Together.")
+                else:
+                    st.error("No se pudo extraer texto del currículum.")
+
+elif opcion == "Ingresar Habilidades Manualmente":
+    # Campo para ingresar habilidades manualmente
+    habilidades_texto = st.text_area("Ingresa tus habilidades (separadas por comas):", height=150)
+    
+    if habilidades_texto:
+        if st.button("Buscar Oportunidades de Empleo"):
+            with st.spinner("Procesando tus habilidades y buscando empleos..."):
+                # Procesar habilidades ingresadas manualmente
+                habilidades_procesadas = procesar_habilidades_manual(habilidades_texto)
+                
+                if habilidades_procesadas:
+                    st.success("Habilidades procesadas exitosamente.")
+                    
+                    # Mostrar las habilidades ingresadas (opcional)
+                    st.subheader("Habilidades Ingresadas")
+                    st.write(habilidades_procesadas)
                     
                     # Buscar empleos adecuados con Serper
                     serper_api_key = st.secrets["serper_api_key"]
-                    empleos = buscar_empleos(descripcion, serper_api_key)
+                    empleos = buscar_empleos(habilidades_procesadas, serper_api_key)
                     
                     if empleos:
                         resultados = parsear_resultados_serper(empleos)
@@ -170,10 +226,8 @@ if uploaded_file:
                                 st.markdown(f"**Enlace:** [Aplicar Aquí]({empleo['enlace']})")
                                 st.markdown("---")
                         else:
-                            st.warning("No se encontraron empleos adecuados.") 
+                            st.warning("No se encontraron empleos adecuados.")
                     else:
                         st.warning("No se obtuvieron resultados de empleos.")
                 else:
-                    st.error("No se pudo procesar el currículum con Together.")
-            else:
-                st.error("No se pudo extraer texto del currículum.")
+                    st.error("No se pudo procesar las habilidades ingresadas.")
