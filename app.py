@@ -2,8 +2,10 @@
 
 import streamlit as st
 import requests
-import os
 import re
+from PyPDF2 import PdfReader
+from io import BytesIO
+import docx
 
 # Configurar la página
 st.set_page_config(
@@ -19,38 +21,84 @@ st.title("Buscador de Teletrabajo 📄➡️💻")
 # Instrucciones para el usuario
 st.write("""
     Carga tu currículum y encontraremos las mejores oportunidades de teletrabajo para ti.
-    Una vez que encontremos un empleo adecuado, enviaremos tu currículum al empleador correspondiente.
+    Revisa la lista de empleadores y posiciones adecuadas basadas en tu experiencia y habilidades.
 """)
 
-# Función para validar el correo electrónico
+# Función para validar el correo electrónico (opcional, si decides pedirlo)
 def es_correo_valido(correo):
     patron = r"^[\w\.-]+@[\w\.-]+\.\w+$"
     return re.match(patron, correo) is not None
 
-# Función para procesar el currículum
-def procesar_curriculum(file):
+# Función para extraer texto del currículum
+def extraer_texto_curriculum(file):
     try:
-        # Aquí podrías agregar lógica para procesar el currículum,
-        # como extraer texto o analizar habilidades. Por simplicidad,
-        # asumiremos que simplemente enviamos el archivo a la API de Together.
-        return file.read()
+        if file.type == "application/pdf":
+            reader = PdfReader(file)
+            texto = ""
+            for page in reader.pages:
+                texto += page.extract_text() + " "
+            return texto
+        elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            doc = docx.Document(file)
+            texto = ""
+            for para in doc.paragraphs:
+                texto += para.text + " "
+            return texto
+        else:
+            st.error("Formato de archivo no soportado. Por favor, sube un PDF o DOCX.")
+            return None
     except Exception as e:
         st.error(f"Error al procesar el currículum: {e}")
+        return None
+
+# Función para interactuar con la API de Together y extraer información clave
+def procesar_con_together(texto_curriculum, api_key):
+    try:
+        url = "https://api.together.xyz/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        prompt = f"Extrae una lista de habilidades, experiencia y puestos de trabajo relevantes de este currículum:\n\n{texto_curriculum}"
+        data = {
+            "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            "messages": [
+                {"role": "system", "content": "Eres un asistente que extrae información clave de currículums."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 1000,
+            "temperature": 0.7,
+            "top_p": 0.7,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<|eot_id|>"],
+            "stream": False
+        }
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            respuesta = response.json()
+            # Asumiendo que la respuesta tiene una estructura similar a OpenAI
+            contenido = respuesta.get("choices", [])[0].get("message", {}).get("content", "")
+            return contenido
+        else:
+            st.error(f"Error al procesar el currículum con Together: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Excepción al procesar el currículum con Together: {e}")
         return None
 
 # Función para buscar empleos usando la API de Serper
 def buscar_empleos(descripcion, api_key):
     try:
-        url = "https://serper-api-endpoint.com/search"  # Reemplaza con el endpoint real de Serper
+        url = "https://google.serper.dev/search"
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "X-API-KEY": api_key,
             "Content-Type": "application/json"
         }
         payload = {
-            "query": f"teletrabajo {descripcion}",
-            "location": "remote"
+            "q": f"teletrabajo {descripcion}"
         }
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
             return response.json()
         else:
@@ -60,63 +108,77 @@ def buscar_empleos(descripcion, api_key):
         st.error(f"Excepción al buscar empleos: {e}")
         return None
 
-# Función para enviar el currículum al empleador usando la API de Together
-def enviar_curriculum(empleador, curriculum_data, api_key, user_email):
+# Función para parsear los resultados de Serper y extraer información relevante
+def parsear_resultados_serper(empleos_json):
+    # La estructura de la respuesta depende de la API de Serper
+    # Asumiendo que los resultados están en 'organic' y cada resultado tiene 'title', 'link', 'snippet'
+    resultados = []
     try:
-        url = f"https://together-api-endpoint.com/send"  # Reemplaza con el endpoint real de Together
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "employer_id": empleador["id"],
-            "resume": curriculum_data.decode("utf-8"),  # Asegúrate de que el formato sea correcto
-            "user_email": user_email
-        }
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            return True
-        else:
-            st.error(f"Error al enviar el currículum: {response.text}")
-            return False
+        if "organic" in empleos_json:
+            for item in empleos_json["organic"]:
+                titulo = item.get("title", "Sin Título")
+                enlace = item.get("link", "#")
+                snippet = item.get("snippet", "")
+                resultados.append({
+                    "titulo": titulo,
+                    "enlace": enlace,
+                    "descripcion": snippet
+                })
     except Exception as e:
-        st.error(f"Excepción al enviar el currículum: {e}")
-        return False
+        st.error(f"Error al parsear los resultados de Serper: {e}")
+    return resultados
 
 # Componente para cargar el currículum
 uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf", "docx"])
 
-# Campo para el email del usuario
-user_email = st.text_input("Introduce tu correo electrónico para notificaciones")
+# (Opcional) Campo para el email del usuario
+# user_email = st.text_input("Introduce tu correo electrónico para notificaciones")
 
-# Validación del correo electrónico
-if user_email and not es_correo_valido(user_email):
-    st.warning("Por favor, introduce un correo electrónico válido.")
+# # Validación del correo electrónico
+# if user_email and not es_correo_valido(user_email):
+#     st.warning("Por favor, introduce un correo electrónico válido.")
 
-if uploaded_file and user_email and es_correo_valido(user_email):
-    if st.button("Buscar y Enviar"):
+# Botón para buscar
+if uploaded_file:
+    # (Opcional) Validar el correo electrónico si está presente
+    # if user_email and not es_correo_valido(user_email):
+    #     st.warning("Por favor, introduce un correo electrónico válido.")
+    # else:
+    st.button_label = "Buscar Oportunidades de Teletrabajo"
+    if st.button("Buscar Oportunidades de Teletrabajo"):
         with st.spinner("Procesando tu currículum y buscando empleos..."):
-            # Procesar el currículum
-            curriculum = procesar_curriculum(uploaded_file)
-            if curriculum:
-                # Aquí podrías extraer una descripción o habilidades clave del currículum
-                descripcion = "habilidades clave extraídas"  # Implementa la lógica necesaria
-
-                # Buscar empleos adecuados
-                serper_api_key = st.secrets["serper_api_key"]
-                empleos = buscar_empleos(descripcion, serper_api_key)
-
-                if empleos and "results" in empleos and len(empleos["results"]) > 0:
-                    # Por simplicidad, tomaremos el primer empleo encontrado
-                    empleo_seleccionado = empleos["results"][0]
+            # Extraer texto del currículum
+            texto_curriculum = extraer_texto_curriculum(uploaded_file)
+            if texto_curriculum:
+                # Procesar el currículum con Together para extraer habilidades y experiencias
+                together_api_key = st.secrets["together_api_key"]
+                descripcion = procesar_con_together(texto_curriculum, together_api_key)
+                
+                if descripcion:
+                    st.success("Currículum procesado exitosamente.")
                     
-                    # Enviar el currículum al empleador
-                    together_api_key = st.secrets["together_api_key"]
-                    exito = enviar_curriculum(empleo_seleccionado, curriculum, together_api_key, user_email)
-
-                    if exito:
-                        st.success(f"¡Tu currículum ha sido enviado a {empleo_seleccionado['employer_name']}!")
+                    # Mostrar la descripción extraída (opcional)
+                    st.subheader("Información Extraída del Currículum")
+                    st.write(descripcion)
+                    
+                    # Buscar empleos adecuados con Serper
+                    serper_api_key = st.secrets["serper_api_key"]
+                    empleos = buscar_empleos(descripcion, serper_api_key)
+                    
+                    if empleos:
+                        resultados = parsear_resultados_serper(empleos)
+                        if resultados:
+                            st.subheader("Opciones de Teletrabajo Encontradas")
+                            for idx, empleo in enumerate(resultados, 1):
+                                st.markdown(f"### {idx}. {empleo['titulo']}")
+                                st.markdown(f"**Descripción:** {empleo['descripcion']}")
+                                st.markdown(f"**Enlace:** [Aplicar Aquí]({empleo['enlace']})")
+                                st.markdown("---")
+                        else:
+                            st.warning("No se encontraron empleos adecuados.")
                     else:
-                        st.error("Hubo un problema al enviar tu currículum.")
+                        st.warning("No se obtuvieron resultados de empleos.")
                 else:
-                    st.warning("No se encontraron empleos adecuados.")
+                    st.error("No se pudo procesar el currículum con Together.")
+            else:
+                st.error("No se pudo extraer texto del currículum.")
