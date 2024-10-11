@@ -3,6 +3,7 @@
 import streamlit as st
 import requests
 import os
+import re
 
 # Configurar la página
 st.set_page_config(
@@ -18,8 +19,13 @@ st.title("Buscador de Teletrabajo 📄➡️💻")
 # Instrucciones para el usuario
 st.write("""
     Carga tu currículum y encontraremos las mejores oportunidades de teletrabajo para ti.
-    Una vez que encuentremos un empleo adecuado, enviaremos tu currículum al empleador correspondiente.
+    Una vez que encontremos un empleo adecuado, enviaremos tu currículum al empleador correspondiente.
 """)
+
+# Función para validar el correo electrónico
+def es_correo_valido(correo):
+    patron = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    return re.match(patron, correo) is not None
 
 # Función para procesar el currículum
 def procesar_curriculum(file):
@@ -55,7 +61,7 @@ def buscar_empleos(descripcion, api_key):
         return None
 
 # Función para enviar el currículum al empleador usando la API de Together
-def enviar_curriculum(empleador, curriculum_data, api_key):
+def enviar_curriculum(empleador, curriculum_data, api_key, user_email):
     try:
         url = f"https://together-api-endpoint.com/send"  # Reemplaza con el endpoint real de Together
         headers = {
@@ -64,8 +70,8 @@ def enviar_curriculum(empleador, curriculum_data, api_key):
         }
         payload = {
             "employer_id": empleador["id"],
-            "resume": curriculum_data,
-            "user_email": "usuario@ejemplo.com"  # Puedes solicitar el email al usuario
+            "resume": curriculum_data.decode("utf-8"),  # Asegúrate de que el formato sea correcto
+            "user_email": user_email
         }
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code == 200:
@@ -81,9 +87,13 @@ def enviar_curriculum(empleador, curriculum_data, api_key):
 uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf", "docx"])
 
 # Campo para el email del usuario
-user_email = st.text_input("Introduce tu correo electrónico para notificaciones", type="email")
+user_email = st.text_input("Introduce tu correo electrónico para notificaciones")
 
-if uploaded_file and user_email:
+# Validación del correo electrónico
+if user_email and not es_correo_valido(user_email):
+    st.warning("Por favor, introduce un correo electrónico válido.")
+
+if uploaded_file and user_email and es_correo_valido(user_email):
     if st.button("Buscar y Enviar"):
         with st.spinner("Procesando tu currículum y buscando empleos..."):
             # Procesar el currículum
@@ -96,13 +106,13 @@ if uploaded_file and user_email:
                 serper_api_key = st.secrets["serper_api_key"]
                 empleos = buscar_empleos(descripcion, serper_api_key)
 
-                if empleos:
+                if empleos and "results" in empleos and len(empleos["results"]) > 0:
                     # Por simplicidad, tomaremos el primer empleo encontrado
                     empleo_seleccionado = empleos["results"][0]
                     
                     # Enviar el currículum al empleador
                     together_api_key = st.secrets["together_api_key"]
-                    exito = enviar_curriculum(empleo_seleccionado, curriculum, together_api_key)
+                    exito = enviar_curriculum(empleo_seleccionado, curriculum, together_api_key, user_email)
 
                     if exito:
                         st.success(f"¡Tu currículum ha sido enviado a {empleo_seleccionado['employer_name']}!")
