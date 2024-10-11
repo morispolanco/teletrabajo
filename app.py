@@ -24,11 +24,6 @@ st.write("""
     Revisa la lista de empleadores y posiciones adecuadas basadas en tu experiencia y habilidades.
 """)
 
-# Función para validar el correo electrónico (opcional, si decides pedirlo)
-def es_correo_valido(correo):
-    patron = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    return re.match(patron, correo) is not None
-
 # Función para extraer texto del currículum
 def extraer_texto_curriculum(file):
     try:
@@ -36,7 +31,9 @@ def extraer_texto_curriculum(file):
             reader = PdfReader(file)
             texto = ""
             for page in reader.pages:
-                texto += page.extract_text() + " "
+                page_text = page.extract_text()
+                if page_text:
+                    texto += page_text + " "
             return texto
         elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
             doc = docx.Document(file)
@@ -59,17 +56,17 @@ def procesar_con_together(texto_curriculum, api_key):
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        prompt = f"Extrae una lista de habilidades, experiencia y puestos de trabajo relevantes de este currículum:\n\n{texto_curriculum}"
+        prompt = f"Por favor, extrae una lista concisa de habilidades, experiencia y puestos de trabajo relevantes de este currículum:\n\n{texto_curriculum}"
         data = {
             "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
             "messages": [
-                {"role": "system", "content": "Eres un asistente que extrae información clave de currículums."},
+                {"role": "system", "content": "Eres un asistente que extrae información clave de currículums de manera concisa."},
                 {"role": "user", "content": prompt}
             ],
-            "max_tokens": 1000,
-            "temperature": 0.7,
-            "top_p": 0.7,
-            "top_k": 50,
+            "max_tokens": 500,  # Reducir la cantidad de tokens para obtener respuestas más concisas
+            "temperature": 0.5,  # Reducir la temperatura para respuestas más determinísticas
+            "top_p": 0.9,
+            "top_k": 40,
             "repetition_penalty": 1,
             "stop": ["<|eot_id|>"],
             "stream": False
@@ -95,8 +92,18 @@ def buscar_empleos(descripcion, api_key):
             "X-API-KEY": api_key,
             "Content-Type": "application/json"
         }
+        query = f"teletrabajo {descripcion}"
+        # Verificar y limitar la longitud de la consulta
+        max_query_length = 2048
+        if len(query) > max_query_length:
+            # Truncar la descripción para que la consulta no exceda el límite
+            allowed_length = max_query_length - len("teletrabajo ")
+            descripcion_truncada = descripcion[:allowed_length]
+            st.warning("La descripción ha sido truncada para ajustarse al límite de la API.")
+            query = f"teletrabajo {descripcion_truncada}"
+        
         payload = {
-            "q": f"teletrabajo {descripcion}"
+            "q": query
         }
         response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
@@ -131,20 +138,8 @@ def parsear_resultados_serper(empleos_json):
 # Componente para cargar el currículum
 uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf", "docx"])
 
-# (Opcional) Campo para el email del usuario
-# user_email = st.text_input("Introduce tu correo electrónico para notificaciones")
-
-# # Validación del correo electrónico
-# if user_email and not es_correo_valido(user_email):
-#     st.warning("Por favor, introduce un correo electrónico válido.")
-
 # Botón para buscar
 if uploaded_file:
-    # (Opcional) Validar el correo electrónico si está presente
-    # if user_email and not es_correo_valido(user_email):
-    #     st.warning("Por favor, introduce un correo electrónico válido.")
-    # else:
-    st.button_label = "Buscar Oportunidades de Teletrabajo"
     if st.button("Buscar Oportunidades de Teletrabajo"):
         with st.spinner("Procesando tu currículum y buscando empleos..."):
             # Extraer texto del currículum
