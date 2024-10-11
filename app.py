@@ -9,18 +9,18 @@ import docx
 
 # Configurar la página
 st.set_page_config(
-    page_title="Buscador de Teletrabajo",
+    page_title="Buscador de Empleo",
     page_icon="💼",
     layout="centered",
     initial_sidebar_state="auto",
 )
 
 # Título de la aplicación
-st.title("Buscador de Teletrabajo 📄➡️💻")
+st.title("Buscador de Empleo 📄➡️💻")
 
 # Instrucciones para el usuario
 st.write("""
-    Carga tu currículum y encontraremos las mejores oportunidades de teletrabajo para ti.
+    Carga tu currículum y encontraremos las mejores oportunidades de empleo para ti.
     Revisa la lista de empleadores y posiciones adecuadas basadas en tu experiencia y habilidades.
 """)
 
@@ -63,7 +63,7 @@ def procesar_con_together(texto_curriculum, api_key):
                 {"role": "system", "content": "Eres un asistente que extrae información clave de currículums de manera concisa."},
                 {"role": "user", "content": prompt}
             ],
-            "max_tokens": 500,  # Reducir la cantidad de tokens para obtener respuestas más concisas
+            "max_tokens": 500,  # Reducir la cantidad de tokens para respuestas más concisas
             "temperature": 0.5,  # Reducir la temperatura para respuestas más determinísticas
             "top_p": 0.9,
             "top_k": 40,
@@ -92,15 +92,15 @@ def buscar_empleos(descripcion, api_key):
             "X-API-KEY": api_key,
             "Content-Type": "application/json"
         }
-        query = f"teletrabajo {descripcion}"
+        query = descripcion.strip()
         # Verificar y limitar la longitud de la consulta
         max_query_length = 2048
         if len(query) > max_query_length:
             # Truncar la descripción para que la consulta no exceda el límite
-            allowed_length = max_query_length - len("teletrabajo ")
-            descripcion_truncada = descripcion[:allowed_length]
+            allowed_length = max_query_length
+            descripcion_truncada = query[:allowed_length]
             st.warning("La descripción ha sido truncada para ajustarse al límite de la API.")
-            query = f"teletrabajo {descripcion_truncada}"
+            query = descripcion_truncada
         
         payload = {
             "q": query
@@ -140,7 +140,7 @@ uploaded_file = st.file_uploader("Carga tu currículum (PDF o DOCX)", type=["pdf
 
 # Botón para buscar
 if uploaded_file:
-    if st.button("Buscar Oportunidades de Teletrabajo"):
+    if st.button("Buscar Oportunidades de Empleo"):
         with st.spinner("Procesando tu currículum y buscando empleos..."):
             # Extraer texto del currículum
             texto_curriculum = extraer_texto_curriculum(uploaded_file)
@@ -163,7 +163,7 @@ if uploaded_file:
                     if empleos:
                         resultados = parsear_resultados_serper(empleos)
                         if resultados:
-                            st.subheader("Opciones de Teletrabajo Encontradas")
+                            st.subheader("Opciones de Empleo Encontradas")
                             for idx, empleo in enumerate(resultados, 1):
                                 st.markdown(f"### {idx}. {empleo['titulo']}")
                                 st.markdown(f"**Descripción:** {empleo['descripcion']}")
