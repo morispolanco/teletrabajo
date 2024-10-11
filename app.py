@@ -170,7 +170,7 @@ if uploaded_file:
                                 st.markdown(f"**Enlace:** [Aplicar Aquí]({empleo['enlace']})")
                                 st.markdown("---")
                         else:
-                            st.warning("No se encontraron empleos adecuados.")
+                            st.warning("No se encontraron empleos adecuados.") 
                     else:
                         st.warning("No se obtuvieron resultados de empleos.")
                 else:
